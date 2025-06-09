@@ -26,8 +26,8 @@
         "ext-json": "*",
         "ext-intl": "*",
         "presttec\/dompdf": "^0.8.0",
-        "presttec\/illuminate-database": "~5.8.0|~6.0.0",
-        "presttec\/illuminate-support": "~5.8.0|~6.0.0",
+        "presttec\/illuminate-database": "~5.8.0|^6.0",
+        "presttec\/illuminate-support": "~5.8.0|^6.0",
         "presttec\/laravel-mollie": "^2.5",
         "presttec\/money": "^3.2",
         "presttec\/carbon": "^1.33 || ^2.0"
