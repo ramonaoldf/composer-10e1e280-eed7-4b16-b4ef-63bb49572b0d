@@ -32,7 +32,7 @@ class MandatedSubscriptionBuilder implements Contract
     /**
      * The quantity of the subscription.
      *
-     * @var int
+     * @var integer
      */
     protected $quantity = 1;
 
@@ -87,22 +87,20 @@ class MandatedSubscriptionBuilder implements Contract
      *
      * @return Subscription
      * \Laravel\Cashier\Exceptions\CouponException
-     * @throws \Laravel\Cashier\Exceptions\InvalidMandateException
      */
     public function create()
     {
-        $this->owner->guardMollieMandate();
         $now = now();
 
         return DB::transaction(function () use ($now) {
             $subscription = $this->makeSubscription($now);
             $subscription->save();
 
-            if ($this->coupon) {
-                if ($this->validateCoupon) {
+            if($this->coupon) {
+                if($this->validateCoupon) {
                     $this->coupon->validateFor($subscription);
 
-                    if ($this->handleCoupon) {
+                    if($this->handleCoupon) {
                         $this->coupon->redeemFor($subscription);
                     }
                 }
@@ -110,7 +108,7 @@ class MandatedSubscriptionBuilder implements Contract
 
             $subscription->scheduleNewOrderItemAt($this->nextPaymentAt);
             $subscription->save();
-
+            
             $this->owner->cancelGenericTrial();
 
             return $subscription;
@@ -157,19 +155,6 @@ class MandatedSubscriptionBuilder implements Contract
     {
         $this->trialExpires = $trialUntil;
         $this->nextPaymentAt = $trialUntil;
-
-        return $this;
-    }
-
-    /**
-     * Force the trial to end immediately.
-     *
-     * @return \Laravel\Cashier\SubscriptionBuilder\Contracts\SubscriptionBuilder|void
-     */
-    public function skipTrial()
-    {
-        $this->trialExpires = null;
-        $this->nextPaymentAt = now();
 
         return $this;
     }

@@ -54,8 +54,7 @@ return [
 
         /**
          * The default url the customer is redirected to after the Mollie first payment checkout screen. Can be
-         * overridden per Plan. You can use a `{payment_id}` placeholder here to easily retrieve the Mollie payment in
-         * your controller. Make sure you have set up a matching route.
+         * overridden per Plan.
          */
         'redirect_url' => config('app.url'),
 

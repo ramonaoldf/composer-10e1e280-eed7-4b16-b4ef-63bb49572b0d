@@ -4,7 +4,6 @@ namespace Laravel\Cashier\FirstPayment\Actions;
 
 use Illuminate\Database\Eloquent\Model;
 use Laravel\Cashier\Cashier;
-use Money\Money;
 
 abstract class BaseAction
 {
@@ -15,7 +14,7 @@ abstract class BaseAction
     protected $currency;
 
     /** @var \Money\Money */
-    protected $unitPrice;
+    protected $subtotal;
 
     /** var float */
     protected $taxPercentage = 0;
@@ -25,9 +24,6 @@ abstract class BaseAction
 
     /** @var int */
     protected $quantity = 1;
-
-    /** @var int */
-    protected $roundingMode = Money::ROUND_HALF_UP;
 
     /**
      * Rebuild the Action from a payload.
@@ -74,14 +70,6 @@ abstract class BaseAction
     }
 
     /**
-     * @return int
-     */
-    public function getRoundingMode()
-    {
-        return $this->roundingMode;
-    }
-
-    /**
      * @return float
      */
     public function getTaxPercentage()
@@ -104,17 +92,9 @@ abstract class BaseAction
     /**
      * @return \Money\Money
      */
-    public function getUnitPrice()
-    {
-        return $this->unitPrice;
-    }
-
-    /**
-     * @return \Money\Money
-     */
     public function getSubtotal()
     {
-        return $this->getUnitPrice()->multiply($this->quantity);
+        return $this->subtotal->multiply($this->quantity);
     }
 
     /**
@@ -124,7 +104,7 @@ abstract class BaseAction
     {
         return $this->getSubtotal()
                     ->multiply($this->getTaxPercentage())
-                    ->divide(100, $this->getRoundingMode());
+                    ->divide(100);
     }
 
     /**

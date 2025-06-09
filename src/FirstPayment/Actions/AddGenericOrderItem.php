@@ -13,16 +13,14 @@ class AddGenericOrderItem extends BaseAction
      * @param \Illuminate\Database\Eloquent\Model $owner
      * @param \Money\Money $subtotal
      * @param string $description
-     * @param int $roundingMode
      */
-    public function __construct(Model $owner, Money $subtotal, string $description, int $roundingMode = Money::ROUND_HALF_UP)
+    public function __construct(Model $owner, Money $subtotal, string $description)
     {
         $this->owner = $owner;
         $this->taxPercentage = $this->owner->taxPercentage();
-        $this->unitPrice = $subtotal;
+        $this->subtotal = $subtotal;
         $this->currency = $subtotal->getCurrency()->getCode();
         $this->description = $description;
-        $this->roundingMode = $roundingMode;
     }
 
     /**
@@ -78,7 +76,7 @@ class AddGenericOrderItem extends BaseAction
      */
     public function execute()
     {
-        return tap($this->makeProcessedOrderItems(), function ($items) {
+        return tap($this->makeProcessedOrderItems(), function($items) {
             $items->save();
         });
     }

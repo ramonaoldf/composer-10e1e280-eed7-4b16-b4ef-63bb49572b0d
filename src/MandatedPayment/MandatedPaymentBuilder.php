@@ -4,7 +4,6 @@ namespace Laravel\Cashier\MandatedPayment;
 
 use Illuminate\Database\Eloquent\Model;
 use Laravel\Cashier\Cashier;
-use Laravel\Cashier\Mollie\Contracts\CreateMolliePayment;
 use Mollie\Api\Types\SequenceType;
 use Money\Money;
 
@@ -83,9 +82,6 @@ class MandatedPaymentBuilder
      */
     public function create(array $overrides = [])
     {
-        /** @var CreateMolliePayment $createMolliePayment */
-        $createMolliePayment = app()->make(CreateMolliePayment::class);
-
-        return $createMolliePayment->execute($this->getPayload($overrides));
+        return mollie()->payments()->create($this->getPayload($overrides));
     }
 }
