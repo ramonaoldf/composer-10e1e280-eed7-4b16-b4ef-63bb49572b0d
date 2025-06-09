@@ -22,21 +22,23 @@
         }
     ],
     "require": {
-        "php": ">=7.2",
+        "php": "^7.2|^8.0",
         "ext-json": "*",
         "ext-intl": "*",
-        "presttec\/dompdf": "^0.8.0",
-        "presttec\/illuminate-database": "~5.5.0|~5.6.0|~5.7.0|~5.8.0|~6.0.0",
-        "presttec\/illuminate-support": "~5.5.0|~5.6.0|~5.7.0|~5.8.0|~6.0.0",
-        "presttec\/laravel-mollie": "^2.5",
+        "presttec\/dompdf": "^1.0",
+        "presttec\/illuminate-database": "^6.0|^7.0|^8.0",
+        "presttec\/illuminate-support": "^6.0|^7.0|^8.0",
+        "presttec\/laravel-mollie": "^2.9",
         "presttec\/money": "^3.2",
-        "presttec\/carbon": "^1.33 || ^2.0"
+        "presttec\/carbon": "^2.0"
     },
     "require-dev": {
+        "presttec\/laravel-legacy-factories": "^1.0",
         "presttec\/mockery": "^1.0",
-        "presttec\/testbench": "~3.0|~4.0",
-        "presttec\/phpunit": "^6.5|^7.5|^8.3",
-        "presttec\/phpdotenv": "^2.0|^3.3"
+        "presttec\/testbench": "^4.0|^5.0|^6.0",
+        "presttec\/phpunit": "^8.3|^9.0",
+        "presttec\/phpdotenv": "^3.3|^4.0|^5.0",
+        "presttec\/php-cs-fixer": "^v2.17"
     },
     "autoload": {
         "files": [
@@ -63,6 +65,10 @@
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
+    "scripts": {
+        "test": ".\/vendor\/bin\/phpunit tests",
+        "format": ".\/vendor\/bin\/php-cs-fixer fix --allow-risky=yes"
+    },
     "replaces": {
         "laravel\/cashier-mollie": "*"
     },

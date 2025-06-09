@@ -9,13 +9,12 @@ use Money\Money;
 class FixedDiscountHandler extends BaseCouponHandler
 {
     /**
-     * @param \Laravel\Cashier\Coupon\RedeemedCoupon $redeemedCoupon
      * @param \Laravel\Cashier\Order\OrderItemCollection $items
      * @return \Laravel\Cashier\Order\OrderItemCollection
      */
-    public function getDiscountOrderItems(RedeemedCoupon $redeemedCoupon, OrderItemCollection $items)
+    public function getDiscountOrderItems(OrderItemCollection $items)
     {
-        if($items->isEmpty()) {
+        if ($items->isEmpty()) {
             return new OrderItemCollection;
         }
 
@@ -44,7 +43,7 @@ class FixedDiscountHandler extends BaseCouponHandler
     {
         $discount = mollie_array_to_money($this->context('discount'));
 
-        if($this->context('allow_surplus', false) && $discount->greaterThan($base)) {
+        if ($this->context('allow_surplus', false) && $discount->greaterThan($base)) {
             return $base->negative();
         }
 

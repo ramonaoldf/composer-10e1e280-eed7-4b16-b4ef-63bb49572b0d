@@ -4,12 +4,15 @@ namespace Laravel\Cashier\SubscriptionBuilder;
 
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
+use Laravel\Cashier\FirstPayment\Actions\ActionCollection;
 use Laravel\Cashier\FirstPayment\Actions\AddGenericOrderItem;
+use Laravel\Cashier\FirstPayment\Actions\ApplySubscriptionCouponToPayment;
 use Laravel\Cashier\FirstPayment\Actions\StartSubscription;
 use Laravel\Cashier\FirstPayment\FirstPaymentBuilder;
 use Laravel\Cashier\Plan\Contracts\PlanRepository;
 use Laravel\Cashier\Plan\Plan;
 use Laravel\Cashier\SubscriptionBuilder\Contracts\SubscriptionBuilder as Contract;
+use Money\Money;
 
 /**
  * Creates and configures a Mollie first payment to create a new mandate via Mollie's checkout
@@ -21,7 +24,7 @@ class FirstPaymentSubscriptionBuilder implements Contract
     /**
      * @var \Laravel\Cashier\FirstPayment\FirstPaymentBuilder
      */
-    protected $mandatePaymentBuilder;
+    protected $firstPaymentBuilder;
 
     /**
      * @var \Laravel\Cashier\FirstPayment\Actions\StartSubscription
@@ -56,16 +59,17 @@ class FirstPaymentSubscriptionBuilder implements Contract
      * @param mixed $owner
      * @param string $name
      * @param string $plan
+     * @param array $paymentOptions
+     * @throws \Laravel\Cashier\Exceptions\PlanNotFoundException
      */
-    public function __construct(Model $owner, string $name, string $plan)
+    public function __construct(Model $owner, string $name, string $plan, $paymentOptions = [])
     {
         $this->owner = $owner;
         $this->name = $name;
 
         $this->plan = app(PlanRepository::class)::findOrFail($plan);
 
-        $this->mandatePaymentBuilder = new FirstPaymentBuilder($owner);
-        $this->mandatePaymentBuilder->setFirstPaymentMethod($this->plan->firstPaymentMethod());
+        $this->initializeFirstPaymentBuilder($owner, $paymentOptions);
 
         $this->startSubscription = new StartSubscription($owner, $name, $plan);
     }
@@ -74,26 +78,38 @@ class FirstPaymentSubscriptionBuilder implements Contract
      * Create a new subscription. Returns a redirect to Mollie's checkout screen.
      *
      * @return \Laravel\Cashier\SubscriptionBuilder\RedirectToCheckoutResponse
+     * @throws \Laravel\Cashier\Exceptions\CouponException|\Throwable
      */
     public function create()
     {
-        $actions = [ $this->startSubscription ];
+        $this->validateCoupon();
 
-        if($this->isTrial) {
+        $actions = new ActionCollection([$this->startSubscription]);
+        $coupon = $this->startSubscription->coupon();
+
+        if ($this->isTrial) {
             $taxPercentage = $this->owner->taxPercentage() * 0.01;
             $total = $this->plan->firstPaymentAmount();
-
-            $vat = $total->divide(1 + $taxPercentage)->multiply($taxPercentage);
+          
+            if ($total->isZero()) {
+                $vat = $total->subtract($total); // zero VAT
+            } else {
+                $vat = $total->divide(1 + $taxPercentage)
+                             ->multiply($taxPercentage, $this->roundingMode($total, $taxPercentage));
+            }
             $subtotal = $total->subtract($vat);
 
             $actions[] = new AddGenericOrderItem(
                 $this->owner,
                 $subtotal,
-                $this->plan->firstPaymentDescription()
+                $this->plan->firstPaymentDescription(),
+                $this->roundingMode($total, $taxPercentage)
             );
+        } elseif ($coupon) {
+            $actions[] = new ApplySubscriptionCouponToPayment($this->owner, $coupon, $actions->processedOrderItems());
         }
 
-        $this->mandatePaymentBuilder->inOrderTo($actions)->create();
+        $this->firstPaymentBuilder->inOrderTo($actions->toArray())->create();
 
         return $this->redirectToCheckout();
     }
@@ -123,6 +139,19 @@ class FirstPaymentSubscriptionBuilder implements Contract
     {
         $this->startSubscription->trialUntil($trialUntil);
         $this->isTrial = true;
+
+        return $this;
+    }
+
+    /**
+     * Force the trial to end immediately.
+     *
+     * @return \Laravel\Cashier\SubscriptionBuilder\Contracts\SubscriptionBuilder|void
+     */
+    public function skipTrial()
+    {
+        $this->isTrial = false;
+        $this->startSubscription->skipTrial();
 
         return $this;
     }
@@ -174,7 +203,7 @@ class FirstPaymentSubscriptionBuilder implements Contract
      */
     public function getMandatePaymentBuilder()
     {
-        return $this->mandatePaymentBuilder;
+        return $this->firstPaymentBuilder;
     }
 
     /**
@@ -183,5 +212,63 @@ class FirstPaymentSubscriptionBuilder implements Contract
     protected function redirectToCheckout()
     {
         return RedirectToCheckoutResponse::forFirstPaymentSubscriptionBuilder($this);
+    }
+
+    /**
+     * @throws \Laravel\Cashier\Exceptions\CouponException|\Throwable
+     */
+    protected function validateCoupon()
+    {
+        $coupon = $this->startSubscription->coupon();
+
+        if ($coupon) {
+            $coupon->validateFor(
+                $this->startSubscription->builder()->makeSubscription()
+            );
+        }
+    }
+
+    /**
+     * @param \Illuminate\Database\Eloquent\Model $owner
+     * @param array $paymentOptions
+     * @return \Laravel\Cashier\FirstPayment\FirstPaymentBuilder
+     */
+    protected function initializeFirstPaymentBuilder(Model $owner, $paymentOptions = [])
+    {
+        $this->firstPaymentBuilder = new FirstPaymentBuilder($owner, $paymentOptions);
+        $this->firstPaymentBuilder->setFirstPaymentMethod($this->plan->firstPaymentMethod());
+        $this->firstPaymentBuilder->setRedirectUrl($this->plan->firstPaymentRedirectUrl());
+        $this->firstPaymentBuilder->setWebhookUrl($this->plan->firstPaymentWebhookUrl());
+        $this->firstPaymentBuilder->setDescription($this->plan->firstPaymentDescription());
+
+        return $this->firstPaymentBuilder;
+    }
+
+    /**
+     * Format the money as basic decimal
+     *
+     * @param \Money\Money $total
+     * @param float $taxPercentage
+     *
+     * @return int
+     */
+    public function roundingMode(Money $total, float $taxPercentage)
+    {
+        $vat = $total->divide(1 + $taxPercentage)->multiply($taxPercentage);
+
+        $subtotal = $total->subtract($vat);
+
+        $recalculatedTax = $subtotal->multiply($taxPercentage * 100)->divide(100);
+
+        $finalTotal = $subtotal->add($recalculatedTax);
+
+        if ($finalTotal->equals($total)) {
+            return Money::ROUND_HALF_UP;
+        }
+        if ($finalTotal->greaterThan($total)) {
+            return Money::ROUND_UP;
+        }
+
+        return  Money::ROUND_DOWN;
     }
 }

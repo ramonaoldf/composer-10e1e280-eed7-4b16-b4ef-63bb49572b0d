@@ -4,8 +4,10 @@ namespace Laravel\Cashier\Order;
 
 use Carbon\Carbon;
 use Dompdf\Dompdf;
+use Dompdf\Options;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\View;
+use Illuminate\Support\Str;
 use Laravel\Cashier\Order\Contracts\InvoicableItem;
 use Laravel\Cashier\Traits\FormatsAmount;
 use Money\Money;
@@ -272,7 +274,7 @@ class Invoice
             });
 
             return [
-                'tax_percentage' => $percentage,
+                'tax_percentage' => (float) $percentage,
                 'raw_over_subtotal' => $raw_over_subtotal,
                 'over_subtotal' => $this->formatAmount(money($raw_over_subtotal, $this->currency)),
                 'raw_total' => $raw_total,
@@ -446,15 +448,16 @@ class Invoice
      *
      * @param array $data
      * @param string $view
+     * @param \Dompdf\Options $options
      * @return string
      */
-    public function pdf(array $data = [], string $view = self::DEFAULT_VIEW)
+    public function pdf(array $data = [], string $view = self::DEFAULT_VIEW, Options $options = null)
     {
         if (! defined('DOMPDF_ENABLE_AUTOLOAD')) {
             define('DOMPDF_ENABLE_AUTOLOAD', false);
         }
 
-        $dompdf = new Dompdf;
+        $dompdf = new Dompdf($options);
         $dompdf->loadHtml($this->view($data, $view)->render());
         $dompdf->render();
 
@@ -466,16 +469,17 @@ class Invoice
      *
      * @param null|array $data
      * @param string $view
+     * @param \Dompdf\Options $options
      * @return \Symfony\Component\HttpFoundation\Response
      */
-    public function download(array $data = [], string $view = self::DEFAULT_VIEW)
+    public function download(array $data = [], string $view = self::DEFAULT_VIEW, Options $options = null)
     {
         $filename = implode('_', [
                 $this->id,
-                snake_case(config('app.name', '')),
+                Str::snake(config('app.name', '')),
             ]) . '.pdf';
 
-        return new Response($this->pdf($data, $view), 200, [
+        return new Response($this->pdf($data, $view, $options), 200, [
             'Content-Description' => 'File Transfer',
             'Content-Disposition' => 'attachment; filename="'.$filename.'"',
             'Content-Transfer-Encoding' => 'binary',
@@ -499,10 +503,12 @@ class Invoice
      * @param $separator
      * @return \Illuminate\Support\Collection|string
      */
-    private function optionallyImplode(Collection $collection, $separator) {
-        if($separator === null) {
+    private function optionallyImplode(Collection $collection, $separator)
+    {
+        if ($separator === null) {
             return $collection;
         }
+
         return $collection->implode($separator);
     }
 }

@@ -8,7 +8,6 @@ use Illuminate\Support\Str;
 use Laravel\Cashier\Exceptions\PlanNotFoundException;
 use Laravel\Cashier\Order\OrderItemPreprocessorCollection as Preprocessors;
 use Laravel\Cashier\Plan\Contracts\PlanRepository;
-use Laravel\Cashier\Plan\Contracts\Plan as PlanContract;
 
 class ConfigPlanRepository implements PlanRepository
 {
@@ -76,21 +75,26 @@ class ConfigPlanRepository implements PlanRepository
             switch ($key) {
                 case 'amount':
                     $plan->setAmount(mollie_array_to_money($value));
+
                     break;
                 case 'firstPaymentAmount':
                     $plan->setFirstPaymentAmount(mollie_array_to_money($value));
+
                     break;
                 case 'firstPaymentMethod':
                     $plan->setFirstPaymentMethod($value);
+
                     break;
                 case 'orderItemPreprocessors':
                     $plan->setOrderItemPreprocessors(Preprocessors::fromArray($value));
+
                     break;
                 default: // call $plan->setKey() if setKey method exists
                     $method = 'set' . ucfirst($key);
-                    if(method_exists($plan, $method)) {
+                    if (method_exists($plan, $method)) {
                         $plan->$method($value);
                     }
+
                     break;
             }
         }
@@ -108,7 +112,7 @@ class ConfigPlanRepository implements PlanRepository
         $result = array_merge($planDefaults, $planConfig);
 
         // Flatten and prefix first_payment
-        if(array_key_exists('first_payment', $result)) {
+        if (array_key_exists('first_payment', $result)) {
             $firstPaymentDefaults = $result['first_payment'];
             unset($result['first_payment']);
 
