@@ -25,6 +25,7 @@ use Mollie\Api\Types\PaymentStatus;
 
 /**
  * @method static create(array $data)
+ * @property string mollie_payment_status
  */
 class Order extends Model
 {
@@ -81,7 +82,7 @@ class Order extends Model
             $total = $items->sum('total');
 
             $order = static::create(array_merge([
-                'owner_id' => $owner->id,
+                'owner_id' => $owner->getKey(),
                 'owner_type' => get_class($owner),
                 'number' => static::numberGenerator()->generate(),
                 'currency' => $currency,
