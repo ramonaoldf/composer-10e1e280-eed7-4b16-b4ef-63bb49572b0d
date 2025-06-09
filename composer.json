@@ -29,6 +29,7 @@
         "presttec\/illuminate-database": "~5.8.0|^6.0",
         "presttec\/illuminate-support": "~5.8.0|^6.0",
         "presttec\/laravel-mollie": "^2.5",
+        "presttec\/mollie-api-php": "v2.11.0",
         "presttec\/money": "^3.2",
         "presttec\/carbon": "^1.33 || ^2.0"
     },
