@@ -37,7 +37,8 @@
         "presttec\/mockery": "^1.0",
         "presttec\/testbench": "^4.0|^5.0|^6.0",
         "presttec\/phpunit": "^8.3|^9.0",
-        "presttec\/phpdotenv": "^3.3|^4.0|^5.0"
+        "presttec\/phpdotenv": "^3.3|^4.0|^5.0",
+        "presttec\/php-cs-fixer": "^v2.17"
     },
     "autoload": {
         "files": [
@@ -64,6 +65,10 @@
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
+    "scripts": {
+        "test": ".\/vendor\/bin\/phpunit tests",
+        "format": ".\/vendor\/bin\/php-cs-fixer fix --allow-risky=yes"
+    },
     "replaces": {
         "laravel\/cashier-mollie": "*"
     },
