@@ -7,7 +7,6 @@ use Illuminate\Support\Facades\DB;
 use Laravel\Cashier\Events\MandateUpdated;
 use Laravel\Cashier\FirstPayment\Actions\BaseAction;
 use Laravel\Cashier\Order\Order;
-use Laravel\Cashier\Order\OrderItem;
 use Laravel\Cashier\Order\OrderItemCollection;
 use Mollie\Api\Resources\Payment;
 
@@ -53,7 +52,7 @@ class FirstPaymentHandler
             ]);
         });
 
-        event(new MandateUpdated($this->owner));
+        event(new MandateUpdated($this->owner, $this->payment));
 
         return $order;
     }
@@ -99,15 +98,7 @@ class FirstPaymentHandler
         $orderItems = new OrderItemCollection();
 
         $this->actions->each(function (BaseAction $action) use (&$orderItems) {
-            $actionResult = $action->execute();
-
-            if(!empty($actionResult)) {
-                if(is_a($actionResult, OrderItem::class)) {
-                    $orderItems->push($actionResult);
-                } elseif (is_a($actionResult, OrderItemCollection::class)) {
-                    $orderItems->concat($actionResult);
-                }
-            }
+            $orderItems = $orderItems->concat($action->execute());
         });
 
         return $orderItems;

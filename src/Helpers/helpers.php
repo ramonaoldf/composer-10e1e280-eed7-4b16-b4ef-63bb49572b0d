@@ -1,6 +1,7 @@
 <?php
 
 use Money\Currencies\ISOCurrencies;
+use Money\Currency;
 use Money\Formatter\DecimalMoneyFormatter;
 use Money\Money;
 use Money\Parser\DecimalMoneyParser;
@@ -14,9 +15,10 @@ if (! function_exists('object_to_array_recursive')) {
      */
     function object_to_array_recursive($object)
     {
-        if(empty($object)) {
+        if (empty($object)) {
             return null;
         }
+
         return json_decode(json_encode($object, JSON_FORCE_OBJECT), true);
     }
 }
@@ -31,7 +33,7 @@ if (! function_exists('money')) {
      */
     function money(int $value, string $currency)
     {
-        return new Money($value, new \Money\Currency($currency));
+        return new Money($value, new Currency($currency));
     }
 }
 
@@ -47,7 +49,7 @@ if (! function_exists('decimal_to_money')) {
     {
         $moneyParser = new DecimalMoneyParser(new ISOCurrencies());
 
-        return $moneyParser->parse($value, $currency);
+        return $moneyParser->parse($value, new Currency($currency));
     }
 }
 
@@ -95,60 +97,16 @@ if (! function_exists('mollie_object_to_money')) {
     }
 }
 
-if (! function_exists('starts_with')) {
+if (! function_exists('money_to_decimal')) {
+
     /**
-     * Determine if a given string starts with a given substring.
+     * Format the money as basic decimal
      *
-     * @param  string  $haystack
-     * @param  string|array  $needles
-     * @return bool
+     * @param \Money\Money $money
+     * @return string|bool
      */
-    function starts_with($haystack, $needles)
+    function money_to_decimal(Money $money)
     {
-        foreach ((array) $needles as $needle) {
-            if ($needle !== '' && substr($haystack, 0, strlen($needle)) === (string) $needle) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-}
-
-if (! function_exists('ends_with')) {
-    /**
-     * Determine if a given string ends with a given substring.
-     *
-     * @param  string  $haystack
-     * @param  string|array  $needles
-     * @return bool
-     */
-    function ends_with($haystack, $needles)
-    {
-        foreach ((array) $needles as $needle) {
-            if (substr($haystack, -strlen($needle)) === (string) $needle) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-}
-
-if (! function_exists('snake_case')) {
-    /**
-     * Convert a string to snake case.
-     *
-     * @param  string  $value
-     * @param  string  $delimiter
-     * @return string
-     */
-    function snake_case($value, $delimiter = '_')
-    {
-        if (! ctype_lower($value)) {
-            $value = preg_replace('/\s+/', '', $value);
-            $value = strtolower(preg_replace('/(.)(?=[A-Z])/', '$1'.$delimiter, $value));
-        }
-        return $value;
+        return (new DecimalMoneyFormatter(new ISOCurrencies()))->format($money);
     }
 }

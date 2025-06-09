@@ -40,7 +40,7 @@ class OrderItemCollection extends Collection
     public function whereOwner($owner)
     {
         return $this->filter(function ($item) use ($owner) {
-            return (string) $item->owner_id === (string) $owner->id
+            return (string) $item->owner_id === (string) $owner->getKey()
                 && $item->owner_type === get_class($owner);
         });
     }
@@ -53,9 +53,10 @@ class OrderItemCollection extends Collection
     public function chunkByOwner()
     {
         return $this->owners()->sortBy(function ($owner) {
-            return get_class($owner) . '_' . $owner->id;
+            return get_class($owner) . '_' . $owner->getKey();
         })->mapWithKeys(function ($owner) {
-            $key = get_class($owner) . '_' . $owner->id;
+            $key = get_class($owner) . '_' . $owner->getKey();
+
             return [$key => $this->whereOwner($owner)];
         });
     }
@@ -95,12 +96,10 @@ class OrderItemCollection extends Collection
         $result = collect();
 
         $this->chunkByOwner()->each(function ($owners_chunks, $owner_reference) use (&$result) {
-
             $owners_chunks->chunkByCurrency()->each(function ($chunk, $currency) use (&$result, $owner_reference) {
                 $key = "{$owner_reference}_{$currency}";
                 $result->put($key, $chunk);
             });
-
         });
 
         return $result;
@@ -141,6 +140,7 @@ class OrderItemCollection extends Collection
     {
         return $this->map(function (OrderItem $item) {
             $item->save();
+
             return $item;
         });
     }

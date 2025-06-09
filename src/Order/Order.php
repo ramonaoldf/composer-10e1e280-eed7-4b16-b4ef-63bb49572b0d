@@ -7,10 +7,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Str;
 use Laravel\Cashier\Credit\Credit;
 use Laravel\Cashier\Events\BalanceTurnedStale;
 use Laravel\Cashier\Events\OrderCreated;
 use Laravel\Cashier\Events\OrderPaymentFailed;
+use Laravel\Cashier\Events\OrderPaymentFailedDueToInvalidMandate;
 use Laravel\Cashier\Events\OrderPaymentPaid;
 use Laravel\Cashier\Events\OrderProcessed;
 use Laravel\Cashier\Exceptions\InvalidMandateException;
@@ -19,13 +21,14 @@ use Laravel\Cashier\Order\Contracts\MinimumPayment;
 use Laravel\Cashier\Traits\HasOwner;
 use LogicException;
 use Mollie\Api\Resources\Mandate;
+use Mollie\Api\Types\PaymentStatus;
 
 /**
  * @method static create(array $data)
  */
 class Order extends Model
 {
-    use hasOwner;
+    use HasOwner;
     use ConvertsToMoney;
 
     /**
@@ -60,15 +63,15 @@ class Order extends Model
     public static function createFromItems(OrderItemCollection $items, $overrides = [], $process_items = true)
     {
         return DB::transaction(function () use ($items, $overrides, $process_items) {
-            if($process_items) {
+            if ($process_items) {
                 $items = $items->preprocess();
             }
 
-            if($items->currencies()->count() > 1) {
+            if ($items->currencies()->count() > 1) {
                 throw new LogicException('Creating an order requires items to have a single currency.');
             }
 
-            if($items->owners()->count() > 1) {
+            if ($items->owners()->count() > 1) {
                 throw new LogicException('Creating an order requires items to have a single owner.');
             }
 
@@ -78,9 +81,9 @@ class Order extends Model
             $total = $items->sum('total');
 
             $order = static::create(array_merge([
-                'owner_id' => $owner->id,
+                'owner_id' => $owner->getKey(),
                 'owner_type' => get_class($owner),
-                'number' => (new OrderNumberGenerator)->generate(),
+                'number' => static::numberGenerator()->generate(),
                 'currency' => $currency,
                 'subtotal' => $items->sum('subtotal'),
                 'tax' => $items->sum('tax'),
@@ -91,7 +94,7 @@ class Order extends Model
             $items->each(function (OrderItem $item) use ($order, $process_items) {
                 $item->update(['order_id' => $order->id]);
 
-                if($process_items) {
+                if ($process_items) {
                     $item->process();
                 }
             });
@@ -142,15 +145,13 @@ class Order extends Model
      */
     public function processPayment()
     {
-        $mandate = $this->owner->mollieMandate();
-        $this->guardMandate($mandate);
-        $minimumPaymentAmount = app(MinimumPayment::class)::forMollieMandate($mandate, $this->getCurrency());
+        $this->update(['mollie_payment_id' => 'temp_'.Str::uuid()]);
 
-        DB::transaction(function () use ($minimumPaymentAmount) {
+        DB::transaction(function () {
             $owner = $this->owner;
 
             // Process user balance, if any
-            if($owner->hasCredit($this->currency)) {
+            if ($this->getTotal()->getAmount() > 0 && $owner->hasCredit($this->currency)) {
                 $total = $this->getTotal();
                 $this->balance_before = $owner->credit($this->currency)->value;
 
@@ -159,13 +160,24 @@ class Order extends Model
                 $this->total_due = $total->subtract($creditUsed)->getAmount();
             }
 
+            try {
+                $minimumPaymentAmount = $this->ensureValidMandateAndMinimumPaymentAmountWhenTotalDuePositive();
+            } catch (InvalidMandateException $e) {
+                return $this->handlePaymentFailedDueToInvalidMandate();
+            }
+
             $totalDue = money($this->total_due, $this->currency);
 
-            switch(true) {
+            switch (true) {
                 case $totalDue->isZero():
-                    break; // No payment processing required
+                    // No payment processing required
+                    $this->mollie_payment_id = null;
+
+                    break;
 
                 case $totalDue->lessThan($minimumPaymentAmount):
+                    // No payment processing required
+                    $this->mollie_payment_id = null;
 
                     // Add credit to the owner's balance
                     $credit = Credit::addAmountForOwner($owner, money(-($this->total_due), $this->currency));
@@ -173,6 +185,7 @@ class Order extends Model
                     if (! $owner->hasActiveSubscriptionWithCurrency($this->currency)) {
                         Event::dispatch(new BalanceTurnedStale($credit));
                     }
+
                     break;
 
                 case $totalDue->greaterThanOrEqual($minimumPaymentAmount):
@@ -182,11 +195,17 @@ class Order extends Model
                         $owner,
                         "Order " . $this->number,
                         $totalDue,
-                        url(config('cashier.webhook_url'))
+                        url(config('cashier.webhook_url')),
+                        [
+                            'metadata' => [
+                                'temporary_mollie_payment_id' => $this->mollie_payment_id,
+                            ],
+                        ]
                     ))->create();
 
                     $this->mollie_payment_id = $payment->id;
                     $this->mollie_payment_status = 'open';
+
                     break;
 
                 default:
@@ -233,10 +252,10 @@ class Order extends Model
     public function invoice($id = null, $date = null)
     {
         $invoice = (new Invoice(
-                $this->currency,
-                $id ?: $this->number,
-                $date ?: $this->created_at
-            ))->addItems($this->items)
+            $this->currency,
+            $id ?: $this->number,
+            $date ?: $this->created_at
+        ))->addItems($this->items)
             ->setStartingBalance($this->getBalanceBefore())
             ->setCompletedBalance($this->getBalanceAfter())
             ->setUsedBalance($this->getCreditUsed());
@@ -246,10 +265,15 @@ class Order extends Model
         $extra_information = null;
         $owner = $this->owner;
 
-        if(method_exists($owner, 'getExtraBillingInformation')) {
+        if (method_exists($owner, 'getExtraBillingInformation')) {
             $extra_information = $owner->getExtraBillingInformation();
-            if($extra_information) {
-                $invoice->setExtraInformation([$extra_information]);
+
+            if (! empty($extra_information)) {
+                $extra_information = explode("\n", $extra_information);
+
+                if (is_array($extra_information) && ! empty($extra_information)) {
+                    $invoice->setExtraInformation($extra_information);
+                }
             }
         }
 
@@ -263,7 +287,7 @@ class Order extends Model
      */
     public function isProcessed()
     {
-        return !empty($this->processed_at);
+        return ! empty($this->processed_at);
     }
 
     /**
@@ -275,7 +299,7 @@ class Order extends Model
      */
     public function scopeProcessed($query, $processed = true)
     {
-        if($processed) {
+        if ($processed) {
             return $query->whereNotNull('processed_at');
         }
 
@@ -295,6 +319,31 @@ class Order extends Model
     }
 
     /**
+     * Scope the query to only include orders with a specific Mollie payment status.
+     *
+     * @param $query
+     * @param string $status
+     * @return Builder
+     */
+    public function scopePaymentStatus($query, $status)
+    {
+        return $query->where('mollie_payment_status', $status);
+    }
+
+    /**
+     * Scope the query to only include paid orders.
+     *
+     * @param $query
+     * @return Builder
+     */
+    public function scopePaid($query)
+    {
+        return $this
+            ->scopePaymentStatus($query, PaymentStatus::STATUS_PAID)
+            ->orWhere('total_due', '=', 0);
+    }
+
+    /**
      * Retrieve an Order by the Mollie Payment id.
      *
      * @param $id
@@ -302,7 +351,19 @@ class Order extends Model
      */
     public static function findByPaymentId($id)
     {
-        return self::whereMolliePaymentId($id)->first();
+        return self::where('mollie_payment_id', $id)->first();
+    }
+
+    /**
+     * Retrieve an Order by the Mollie Payment id or throw an Exception if not found.
+     *
+     * @param $id
+     * @return self
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
+     */
+    public static function findByPaymentIdOrFail($id)
+    {
+        return self::where('mollie_payment_id', $id)->firstOrFail();
     }
 
     /**
@@ -311,7 +372,8 @@ class Order extends Model
      *
      * @return bool
      */
-    public function creditApplied() {
+    public function creditApplied()
+    {
         return $this->credit_used <> 0;
     }
 
@@ -325,7 +387,7 @@ class Order extends Model
     public function handlePaymentFailed()
     {
         return DB::transaction(function () {
-            if($this->creditApplied()) {
+            if ($this->creditApplied()) {
                 $this->owner->addCredit($this->getCreditUsed());
             }
 
@@ -342,6 +404,40 @@ class Order extends Model
             });
 
             $this->owner->validateMollieMandate();
+
+            return $this;
+        });
+    }
+
+    /**
+     * Handles a failed payment for the Order due to an invalid Mollie payment Mandate.
+     * Restores any credit used to the customer's balance and resets the credits applied to the Order.
+     * Invokes handlePaymentFailed() on each related OrderItem.
+     *
+     * @return $this
+     */
+    public function handlePaymentFailedDueToInvalidMandate()
+    {
+        return DB::transaction(function () {
+            if ($this->creditApplied()) {
+                $this->owner->addCredit($this->getCreditUsed());
+            }
+
+            $this->update([
+                'mollie_payment_id' => null,
+                'mollie_payment_status' => 'failed',
+                'balance_before' => 0,
+                'credit_used' => 0,
+                'processed_at' => now(),
+            ]);
+
+            Event::dispatch(new OrderPaymentFailedDueToInvalidMandate($this));
+
+            $this->items->each(function (OrderItem $item) {
+                $item->handlePaymentFailed();
+            });
+
+            $this->owner->clearMollieMandate();
 
             return $this;
         });
@@ -394,6 +490,14 @@ class Order extends Model
     /**
      * @return \Money\Money
      */
+    public function getTotalDue()
+    {
+        return $this->toMoney($this->total_due);
+    }
+
+    /**
+     * @return \Money\Money
+     */
     public function getBalanceBefore()
     {
         return $this->toMoney($this->balance_before);
@@ -416,21 +520,47 @@ class Order extends Model
     }
 
     /**
-     * @param \Mollie\Api\Resources\Mandate $mandate
-     * @throws \Laravel\Cashier\Exceptions\InvalidMandateException
-     */
-    protected function guardMandate(?Mandate $mandate)
-    {
-        if(empty($mandate) || ! $mandate->isValid()) {
-            throw new InvalidMandateException('Cannot process payment without valid mandate for order id '.$this->id);
-        }
-    }
-
-    /**
      * @return string
      */
     public function getCurrency()
     {
         return $this->currency;
+    }
+
+    /**
+     * @param \Mollie\Api\Resources\Mandate $mandate
+     * @throws \Laravel\Cashier\Exceptions\InvalidMandateException
+     */
+    protected function guardMandate(?Mandate $mandate)
+    {
+        if (empty($mandate) || ! $mandate->isValid()) {
+            throw new InvalidMandateException('Cannot process payment without valid mandate for order id '.$this->id);
+        }
+    }
+
+    /**
+     * @return \Laravel\Cashier\Order\OrderNumberGenerator
+     */
+    protected static function numberGenerator()
+    {
+        return app()->make(config('cashier.order_number_generator.model'));
+    }
+
+    /**
+     * @return \Money\Money
+     * @throws InvalidMandateException
+     */
+    private function ensureValidMandateAndMinimumPaymentAmountWhenTotalDuePositive(): \Money\Money
+    {
+        // If the total due amount is below 0 checking for a mandate doesn't make sense.
+        if ((int) $this->getTotalDue()->getAmount() > 0) {
+            $mandate = $this->owner->mollieMandate();
+            $this->guardMandate($mandate);
+            $minimumPaymentAmount = app(MinimumPayment::class)::forMollieMandate($mandate, $this->getCurrency());
+        } else {
+            $minimumPaymentAmount = money(0, $this->getCurrency());
+        }
+
+        return $minimumPaymentAmount;
     }
 }

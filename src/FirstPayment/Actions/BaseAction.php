@@ -3,6 +3,8 @@
 namespace Laravel\Cashier\FirstPayment\Actions;
 
 use Illuminate\Database\Eloquent\Model;
+use Laravel\Cashier\Cashier;
+use Money\Money;
 
 abstract class BaseAction
 {
@@ -13,19 +15,19 @@ abstract class BaseAction
     protected $currency;
 
     /** @var \Money\Money */
-    protected $subtotal;
+    protected $unitPrice;
 
     /** var float */
     protected $taxPercentage = 0;
 
-    /** @var \Money\Money */
-    protected $discount;
-
-    /** @var string */
-    protected $discountDescription;
-
     /** @var \Illuminate\Database\Eloquent\Model */
     protected $owner;
+
+    /** @var int */
+    protected $quantity = 1;
+
+    /** @var int */
+    protected $roundingMode = Money::ROUND_HALF_UP;
 
     /**
      * Rebuild the Action from a payload.
@@ -42,9 +44,16 @@ abstract class BaseAction
     abstract public function getPayload();
 
     /**
-     * Execute this action and return the created OrderItem or OrderItemCollection.
+     * Prepare a stub of OrderItems processed with the payment.
      *
-     * @return \Laravel\Cashier\Order\OrderItem|\Laravel\Cashier\Order\OrderItemCollection
+     * @return \Laravel\Cashier\Order\OrderItemCollection
+     */
+    abstract public function makeProcessedOrderItems();
+
+    /**
+     * Execute this action and return the created OrderItemCollection.
+     *
+     * @return \Laravel\Cashier\Order\OrderItemCollection
      */
     abstract public function execute();
 
@@ -61,7 +70,15 @@ abstract class BaseAction
      */
     public function getCurrency()
     {
-        return $this->currency;
+        return $this->currency ?? strtoupper(Cashier::usesCurrency());
+    }
+
+    /**
+     * @return int
+     */
+    public function getRoundingMode()
+    {
+        return $this->roundingMode;
     }
 
     /**
@@ -87,9 +104,17 @@ abstract class BaseAction
     /**
      * @return \Money\Money
      */
+    public function getUnitPrice()
+    {
+        return $this->unitPrice;
+    }
+
+    /**
+     * @return \Money\Money
+     */
     public function getSubtotal()
     {
-        return $this->subtotal;
+        return $this->getUnitPrice()->multiply($this->quantity);
     }
 
     /**
@@ -99,7 +124,7 @@ abstract class BaseAction
     {
         return $this->getSubtotal()
                     ->multiply($this->getTaxPercentage())
-                    ->divide(100);
+                    ->divide(100, $this->getRoundingMode());
     }
 
     /**

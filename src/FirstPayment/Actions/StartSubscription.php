@@ -7,19 +7,18 @@ use Illuminate\Database\Eloquent\Model;
 use Laravel\Cashier\Coupon\Contracts\CouponRepository;
 use Laravel\Cashier\Coupon\RedeemedCoupon;
 use Laravel\Cashier\Order\OrderItem;
+use Laravel\Cashier\Order\OrderItemCollection;
 use Laravel\Cashier\Plan\Contracts\PlanRepository;
+use Laravel\Cashier\SubscriptionBuilder\Contracts\SubscriptionConfigurator;
 use Laravel\Cashier\SubscriptionBuilder\MandatedSubscriptionBuilder;
 
-class StartSubscription extends BaseAction
+class StartSubscription extends BaseAction implements SubscriptionConfigurator
 {
     /** @var string */
     protected $name;
 
     /** @var \Laravel\Cashier\Plan\Plan */
     protected $plan;
-
-    /** @var int */
-    protected $quantity = 1;
 
     /** @var \Laravel\Cashier\Coupon\Coupon */
     protected $coupon;
@@ -32,6 +31,9 @@ class StartSubscription extends BaseAction
 
     /** @var null|\Carbon\Carbon */
     protected $trialUntil;
+
+    /** @var bool */
+    protected $skipTrial;
 
     /** @var null|\Laravel\Cashier\SubscriptionBuilder\MandatedSubscriptionBuilder */
     protected $builder;
@@ -55,9 +57,9 @@ class StartSubscription extends BaseAction
 
         $this->plan = app(PlanRepository::class)::findOrFail($plan);
 
-        $this->subtotal = $this->plan->amount();
+        $this->unitPrice = $this->plan->amount();
         $this->description = $this->plan->description();
-        $this->currency = $this->subtotal->getCurrency()->getCode();
+        $this->currency = $this->unitPrice->getCurrency()->getCode();
 
         $this->couponRepository = app()->make(CouponRepository::class);
     }
@@ -72,19 +74,33 @@ class StartSubscription extends BaseAction
     {
         $action = new static($owner, $payload['name'], $payload['plan']);
 
-        if(isset($payload['taxPercentage'])) {
+        // Already validated when preparing the first payment, so don't validate again
+        $action->builder()->skipCouponValidation();
+
+        // The coupon will be handled manually by this action
+        $action->builder()->skipCouponHandling();
+
+        if (isset($payload['taxPercentage'])) {
             $action->withTaxPercentage($payload['taxPercentage']);
         }
 
-        if(isset($payload['trialUntil'])) {
+        if (isset($payload['trialUntil'])) {
             $action->trialUntil(Carbon::parse($payload['trialUntil']));
         }
 
-        if(isset($payload['trialDays'])) {
+        if (isset($payload['trialDays'])) {
             $action->trialDays($payload['trialDays']);
         }
 
-        if(isset($payload['coupon'])) {
+        if (isset($payload['skipTrial']) && $payload['skipTrial']) {
+            $action->skipTrial();
+        }
+
+        if (isset($payload['quantity'])) {
+            $action->quantity($payload['quantity']);
+        }
+
+        if (isset($payload['coupon'])) {
             $action->withCoupon($payload['coupon']);
         }
 
@@ -108,21 +124,49 @@ class StartSubscription extends BaseAction
             'nextPaymentAt' => ! empty($this->nextPaymentAt) ? $this->nextPaymentAt->toIso8601String() : null,
             'trialDays' => $this->trialDays,
             'trialUntil' => ! empty($this->trialUntil) ? $this->trialUntil->toIso8601String(): null,
+            'skipTrial' => $this->skipTrial,
             'coupon' => ! empty($this->coupon) ? $this->coupon->name() : null,
         ]);
+    }
+
+    /**
+     * Prepare a stub of OrderItems processed with the payment.
+     *
+     * @return \Laravel\Cashier\Order\OrderItemCollection
+     */
+    public function makeProcessedOrderItems()
+    {
+        return OrderItem::make($this->processedOrderItemData())->toCollection();
+    }
+
+    /**
+     * @return array
+     */
+    protected function processedOrderItemData()
+    {
+        return [
+            'owner_type' => get_class($this->owner),
+            'owner_id' => $this->owner->getKey(),
+            'process_at' => now(),
+            'description' => $this->getDescription(),
+            'currency' => $this->getCurrency(),
+            'unit_price' => $this->getUnitPrice()->getAmount(),
+            'tax_percentage' => $this->getTaxPercentage(),
+            'quantity' => $this->quantity,
+        ];
     }
 
     /**
      * Returns an OrderItemCollection ready for processing right away.
      * Another OrderItem is scheduled for the next billing cycle.
      *
-     * @return \Laravel\Cashier\Order\OrderItem|\Laravel\Cashier\Order\OrderItemCollection
+     * @return \Laravel\Cashier\Order\OrderItemCollection
      * @throws \Laravel\Cashier\Exceptions\PlanNotFoundException
      * @throws \Throwable
      */
     public function execute()
     {
-        if(empty($this->nextPaymentAt) && !$this->isTrial()) {
+        if (empty($this->nextPaymentAt) && ! $this->isTrial()) {
             $this->builder()->nextPaymentAt(Carbon::parse($this->plan->interval()));
         }
 
@@ -130,29 +174,20 @@ class StartSubscription extends BaseAction
         $subscription = $this->builder()->create();
 
         // Create an additional OrderItem for the already processed payment
-        /** @var OrderItem $paidItem */
-        $paidItem = $subscription->orderItems()->create([
-            'owner_type' => get_class($this->owner),
-            'owner_id' => $this->owner->id,
-            'process_at' => now(),
-            'description' => $this->getDescription(),
-            'currency' => $this->getCurrency(),
-            'unit_price' => $this->getSubtotal()->getAmount(),
-            'tax_percentage' => $this->getTaxPercentage(),
-            'quantity' => $this->quantity,
-        ]);
+        /** @var OrderItemCollection $processedItems */
+        $processedItems = $subscription->orderItems()
+            ->create($this->processedOrderItemData())
+            ->toCollection();
 
-        if($this->coupon) {
+        if ($this->coupon) {
             $redeemedCoupon = RedeemedCoupon::record($this->coupon, $subscription);
 
-            if(!$this->isTrial()) {
-                return $this->coupon->applyTo($redeemedCoupon, $paidItem->toCollection());
+            if (! $this->isTrial()) {
+                $processedItems = $this->coupon->applyTo($redeemedCoupon, $processedItems);
             }
         }
 
-        $this->owner->cancelGenericTrial();
-
-        return $paidItem;
+        return $processedItems;
     }
 
     /**
@@ -167,7 +202,7 @@ class StartSubscription extends BaseAction
     {
         $this->trialDays = $trialDays;
         $this->builder()->trialDays($trialDays);
-        $this->subtotal = money(0, $this->getCurrency());
+        $this->unitPrice = money(0, $this->getCurrency());
 
         return $this;
     }
@@ -177,13 +212,27 @@ class StartSubscription extends BaseAction
      *
      * @param  Carbon $trialUntil
      * @return $this
-     * @throws \Throwable|\Laravel\Cashier\Exceptions\PlanNotFoundException
      */
     public function trialUntil(Carbon $trialUntil)
     {
         $this->trialUntil = $trialUntil;
         $this->builder()->trialUntil($trialUntil);
-        $this->subtotal = money(0, $this->getCurrency());
+        $this->unitPrice = money(0, $this->getCurrency());
+
+        return $this;
+    }
+
+    /**
+     * Force the trial to end immediately.
+     *
+     * @return $this
+     */
+    public function skipTrial()
+    {
+        $this->skipTrial = true;
+        $this->trialUntil = null;
+        $this->builder()->skipTrial();
+        $this->unitPrice = $this->plan->amount();
 
         return $this;
     }
@@ -199,8 +248,17 @@ class StartSubscription extends BaseAction
     {
         throw_if($quantity < 1, new \LogicException('Subscription quantity must be at least 1.'));
         $this->quantity = $quantity;
+        $this->builder()->quantity($quantity);
 
         return $this;
+    }
+
+    /**
+     * @return \Laravel\Cashier\Coupon\Coupon|null
+     */
+    public function coupon()
+    {
+        return $this->coupon;
     }
 
     /**
@@ -214,10 +272,7 @@ class StartSubscription extends BaseAction
     public function withCoupon(string $coupon)
     {
         $this->coupon = $this->couponRepository->findOrFail($coupon);
-
-        $this->builder()
-            ->skipCouponValidation() // Already validated when preparing the first payment, so don't validate again
-            ->withCoupon($coupon);
+        $this->builder()->withCoupon($coupon);
 
         return $this;
     }
@@ -240,7 +295,7 @@ class StartSubscription extends BaseAction
      */
     protected function isTrial()
     {
-        return ! ( empty($this->trialDays) && empty($this->trialUntil) );
+        return ! (empty($this->trialDays) && empty($this->trialUntil));
     }
 
     /**
@@ -249,9 +304,9 @@ class StartSubscription extends BaseAction
      * @return \Laravel\Cashier\SubscriptionBuilder\MandatedSubscriptionBuilder
      * @throws \Throwable|\Laravel\Cashier\Exceptions\PlanNotFoundException
      */
-    protected function builder()
+    public function builder()
     {
-        if($this->builder === null) {
+        if ($this->builder === null) {
             $this->builder = new MandatedSubscriptionBuilder(
                 $this->owner,
                 $this->name,
