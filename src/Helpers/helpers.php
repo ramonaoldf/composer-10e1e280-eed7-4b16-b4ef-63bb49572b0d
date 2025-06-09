@@ -1,7 +1,6 @@
 <?php
 
 use Money\Currencies\ISOCurrencies;
-use Money\Currency;
 use Money\Formatter\DecimalMoneyFormatter;
 use Money\Money;
 use Money\Parser\DecimalMoneyParser;
@@ -15,10 +14,9 @@ if (! function_exists('object_to_array_recursive')) {
      */
     function object_to_array_recursive($object)
     {
-        if (empty($object)) {
+        if(empty($object)) {
             return null;
         }
-
         return json_decode(json_encode($object, JSON_FORCE_OBJECT), true);
     }
 }
@@ -33,7 +31,7 @@ if (! function_exists('money')) {
      */
     function money(int $value, string $currency)
     {
-        return new Money($value, new Currency($currency));
+        return new Money($value, new \Money\Currency($currency));
     }
 }
 
@@ -49,7 +47,7 @@ if (! function_exists('decimal_to_money')) {
     {
         $moneyParser = new DecimalMoneyParser(new ISOCurrencies());
 
-        return $moneyParser->parse($value, new Currency($currency));
+        return $moneyParser->parse($value, $currency);
     }
 }
 
@@ -94,19 +92,5 @@ if (! function_exists('mollie_object_to_money')) {
     function mollie_object_to_money(object $object)
     {
         return decimal_to_money($object->value, $object->currency);
-    }
-}
-
-if (! function_exists('money_to_decimal')) {
-
-    /**
-     * Format the money as basic decimal
-     *
-     * @param \Money\Money $money
-     * @return string|bool
-     */
-    function money_to_decimal(Money $money)
-    {
-        return (new DecimalMoneyFormatter(new ISOCurrencies()))->format($money);
     }
 }

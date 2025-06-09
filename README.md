@@ -5,20 +5,21 @@
 
 <img src="https://info.mollie.com/hubfs/github/laravel-cashier/editorLaravel.jpg" />
 
-[![Latest Version on Packagist](https://img.shields.io/packagist/v/presttec/laravel-cashier-mollie.svg?style=flat-square)](https://packagist.org/packages/presttec/laravel-cashier-mollie)
-[![Github Actions](https://github.com/presttec/laravel-cashier-mollie/workflows/tests/badge.svg)](https://github.com/presttec/laravel-cashier-mollie/actions)
+<!--
+[![Latest Version on Packagist](https://img.shields.io/packagist/v/mollie/laravel-cashier.svg?style=flat-square)](https://packagist.org/packages/mollie/laravel-cashier)
+-->
+[![Build Status](https://travis-ci.org/presttec/laravel-cashier-mollie.svg?branch=master)](https://travis-ci.org/presttec/laravel-cashier-mollie)
+<!--
+[![SensioLabsInsight](https://img.shields.io/sensiolabs/i/xxxxxxxxx.svg?style=flat-square)](https://insight.sensiolabs.com/projects/xxxxxxxxx)
+[![Quality Score](https://img.shields.io/scrutinizer/g/mollie/:package_name.svg?style=flat-square)](https://scrutinizer-ci.com/g/mollie/:package_name)
+[![Total Downloads](https://img.shields.io/packagist/dt/mollie/:package_name.svg?style=flat-square)](https://packagist.org/packages/mollie/:package_name)
+-->
 
 Laravel Cashier provides an expressive, fluent interface to subscriptions using [Mollie](https://www.mollie.com)'s billing services.
 
 ## Installation
 
-First, make sure to add the Mollie key to your `.env` file. You can obtain an API key from the [Mollie dashboard](https://www.mollie.com/dashboard/developers/api-keys):
-
-```dotenv
-MOLLIE_KEY="test_xxxxxxxxxxx"
-```
-
-Next, pull this package in using composer:
+You can pull this package in using composer:
 
 ```bash
 composer require presttec/laravel-cashier-mollie "^1.0"
@@ -42,10 +43,10 @@ Once you have pulled in the package:
 
 3. Run the migrations: `php artisan migrate`
 
-4. Ensure you have properly configured the `MOLLIE_KEY` in your .env file. You can obtain an API key from the [Mollie dashboard](https://www.mollie.com/dashboard/developers/api-keys):
+4. Set the `MOLLIE_KEY` in your .env file. You can obtain an API key from the [Mollie dashboard](https://www.mollie.com/dashboard/developers/api-keys):
 
     ```dotenv
-   MOLLIE_KEY="test_xxxxxxxxxxxxxxxxxxxxxx"
+   MOLLIE_KEY="test_xxxxxxxxxxx"
     ```
 
 5. Prepare the configuration files:
@@ -122,22 +123,21 @@ subscription:
 
 ```php
 $user = User::find(1);
-// Make sure to configure the 'premium' plan in config/cashier_plans.php
+// Make sure to configure the 'premium' plan in config/cashier.php
 $result = $user->newSubscription('main', 'premium')->create();
 ```
 
 If the customer already has a valid Mollie mandate, the `$result` will be a `Subscription`.
 
-If the customer has no valid Mollie mandate yet, the `$result` will be a `RedirectToCheckoutResponse`, redirecting the
-customer to the Mollie checkout to make the first payment. Once the payment has been received the subscription will
-start.
+If the customer has no valid Mollie mandate yet, the `$result` will be a `RedirectResponse`, redirecting the customer to
+the Mollie checkout to make the first payment. Once the payment has been received the subscription will start.
 
 Here's a basic controller example for creating the subscription:
 
 ```php
 namespace App\Http\Controllers;
 
-use Laravel\Cashier\SubscriptionBuilder\RedirectToCheckoutResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 
 class CreateSubscriptionController extends Controller
@@ -156,7 +156,7 @@ class CreateSubscriptionController extends Controller
 
             $result = $user->newSubscription($name, $plan)->create();
 
-            if(is_a($result, RedirectToCheckoutResponse::class)) {
+            if(is_a($result, RedirectResponse::class)) {
                 return $result; // Redirect to Mollie checkout
             }
 
@@ -183,23 +183,6 @@ You can provide your own coupon handler by extending
 `\Cashier\Discount\BaseCouponHandler`.
 
 Out of the box, a basic `FixedDiscountHandler` is provided.
-
-#### Redeeming a coupon for an existing subscription
-
-For redeeming a coupon for an existing subscription, use the `redeemCoupon()` method on the billable trait:
-
-    $user->redeemCoupon('your-coupon-code');
-
-This will validate the coupon code and redeem it. The coupon will be applied to the upcoming Order.
-
-Optionally, specify the subscription it should be applied to:
-
-    $user->redeemCoupon('your-coupon-code', 'main');
-    
-By default all other active redeemed coupons for the subscription will be revoked. You can prevent this by setting the
-`$revokeOtherCoupons` flag to false:
-
-    $user->redeemCoupon('your-coupon-code', 'main', false);
 
 ### Checking subscription status
 
@@ -330,10 +313,6 @@ To cancel a subscription, call the `cancel` method on the user's subscription:
 ```php
 $user->subscription('main')->cancel();
 ```
-or
-```php
-$user->subscription('main')->cancelAt(now());
-```
 
 When a subscription is cancelled, Cashier will automatically set the `ends_at` column in your database. This column is used to know when the `subscribed` method should begin returning `false`. For example, if a customer cancels a subscription on March 1st, but the subscription was not scheduled to end until March 5th, the `subscribed` method will continue to return `true` until March 5th.
 
@@ -463,29 +442,6 @@ $invoice->download(); // get a download response for the pdf
 To list invoices, access the user's orders using: `$user->orders->invoices()`.
 This includes invoices for all orders, even unprocessed or failed orders.
 
-For list of invoices
-
-```php
-<ul class="list-unstyled">
-    @foreach(auth()->user()->orders as $order)
-    <li>
-        
-        <a href="/download-invoice/{{ $order->id }}">
-            {{ $order->invoice()->id() }} -  {{ $order->invoice()->date() }}
-        </a>
-    </li>
-    @endforeach
-</ul>
-```
-and add this route inside web.php
-
-```php
-Route::middleware('auth')->get('/download-invoice/{orderId}', function($orderId){
-
-    return (request()->user()->downloadInvoice($orderId));
-});
-```
-
 ### Refunding Charges
 
 Coming soon. 
@@ -504,7 +460,7 @@ __Use these with care:__
 
 ```php
 $credit = $user->credit('EUR');
-$user->addCredit(money(10, 'EUR')); // add €10.00
+$user->addCredit(new Amount(10, 'EUR'); // add €10.00
 $user->hasCredit('EUR');
 ```
 
@@ -568,24 +524,14 @@ An Invoice is available on the Order. Access it using `$event->order->invoice()`
 #### `OrderPaymentFailed` event
 The payment for an order has failed.
 
-#### `OrderPaymentFailedDueToInvalidMandate` event
-The payment for an order has failed due to an invalid payment mandate. This happens for example when the customer's
-credit card has expired.
-
 #### `OrderPaymentPaid` event
 The payment for an order was successful. 
 
 #### `OrderProcessed` event
 The order has been fully processed.
 
-#### `SubscriptionStarted` event
-A new subscription was started.
-
 #### `SubscriptionCancelled` event
 The subscription was cancelled.
-
-#### `SubscriptionResumed` event
-The subscription was resumed.
 
 #### `SubscriptionPlanSwapped` event
 The subscription plan was swapped.
@@ -653,103 +599,6 @@ all of the previous, including applying the credited balance to the Order.
 
 This does not apply to the `$subscription->swapNextCycle('other-plan')`, which simply waits for the next billing cycle
 to update the subscription plan. A common use case for this is downgrading the plan at the end of the billing cycle. 
-
-### How can I load coupons and/or plans from database?
-
-Because Cashier Mollie uses contracts a lot it's quite easy to extend Cashier Mollie and use your own implementations.
-You can load coupons/plans from database, a file or even a JSON API.
-
-For example a simple implementation of plans from the database:
-
-Firstly you create your own implementation of the plan repository and implement `Laravel\Cashier\Plan\Contracts\PlanRepository`.
-Implement the methods according to your needs and make sure you'll return a `Laravel\Cashier\Plan\Contracts\Plan`.
-
-```php
-use App\Plan;
-use Laravel\Cashier\Exceptions\PlanNotFoundException;
-use Laravel\Cashier\Plan\Contracts\PlanRepository;
-
-class DatabasePlanRepository implements PlanRepository
-{
-    public static function find(string $name)
-    {
-        $plan = Plan::where('name', $name)->first();
-
-        if (is_null($plan)) {
-            return null;
-        }
-
-        // Return a \Laravel\Cashier\Plan\Plan by creating one from the database values
-        return $plan->buildCashierPlan();
-
-        // Or if your model implements the contract: \Laravel\Cashier\Plan\Contracts\Plan
-        return $plan;
-    }
-
-    public static function findOrFail(string $name)
-    {
-        if (($result = self::find($name)) === null) {
-            throw new PlanNotFoundException;
-        }
-
-        return $result;
-    }
-}
-```
-
-<details>
-<summary>Example Plan model (app/Plan.php) with buildCashierPlan and returns a \Laravel\Cashier\Plan\Plan</summary>
-
-```php
-<?php
-
-namespace App;
-
-use Laravel\Cashier\Plan\Plan as CashierPlan;
-use Illuminate\Database\Eloquent\Model;
-
-class Plan extends Model
-{
-    /**
-     * Builds a Cashier plan from the current model.
-     *
-     * @returns \Laravel\Cashier\Plan\Plan
-     */
-    public function buildCashierPlan(): CashierPlan
-    {
-        $plan = new CashierPlan($this->name);
-        
-        return $plan->setAmount(mollie_array_to_money($this->amount))
-            ->setInterval($this->interval)
-            ->setDescription($this->description)
-            ->setFirstPaymentMethod($this->first_payment_method)
-            ->setFirstPaymentAmount(mollie_array_to_money($this->first_payment_amount))
-            ->setFirstPaymentDescription($this->first_payment_description)
-            ->setFirstPaymentRedirectUrl($this->first_payment_redirect_url)
-            ->setFirstPaymentWebhookUrl($this->first_payment_webhook_url)
-            ->setOrderItemPreprocessors(Preprocessors::fromArray($this->order_item_preprocessors));
-    }
-}
-```
-
-Note: In this case you'll need to add accessors for all the values (like amount, interval, fist_payment_method etc.)
-to make sure you'll use the values from your defaults (config/cashier_plans.php > defaults).
-</details>
-
-Then you just have to bind your implementation to the Laravel/Illuminate container by registering the binding in a service provider
-
-```php
-class AppServiceProvider extends ServiceProvider
-{
-    public function register()
-    {
-        $this->app->bind(\Laravel\Cashier\Plan\Contracts\PlanRepository::class, DatabasePlanRepository::class);
-    }
-}
-```
-
-Cashier Mollie will now use your implementation of the PlanRepository. For coupons this is basically the same,
-just make sure you implement the CouponRepository contract and bind the contract to your own implementation.
 
 ## Testing
 

@@ -56,9 +56,7 @@ abstract class BaseCouponHandler implements CouponHandler
      */
     public function apply(RedeemedCoupon $redeemedCoupon, OrderItemCollection $items)
     {
-        return $items->concat(
-            $this->getDiscountOrderItems($items)->save()
-        );
+        return $items->concat($this->getDiscountOrderItems($items));
     }
 
     /**
@@ -105,7 +103,7 @@ abstract class BaseCouponHandler implements CouponHandler
      */
     protected function makeOrderItem(array $data)
     {
-        if ($this->appliedCoupon) {
+        if($this->appliedCoupon) {
             return $this->appliedCoupon->orderItems()->make($data);
         }
 

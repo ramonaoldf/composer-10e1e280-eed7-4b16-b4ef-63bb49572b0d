@@ -12,7 +12,6 @@ use Laravel\Cashier\FirstPayment\FirstPaymentBuilder;
 use Laravel\Cashier\Plan\Contracts\PlanRepository;
 use Laravel\Cashier\Plan\Plan;
 use Laravel\Cashier\SubscriptionBuilder\Contracts\SubscriptionBuilder as Contract;
-use Money\Money;
 
 /**
  * Creates and configures a Mollie first payment to create a new mandate via Mollie's checkout
@@ -59,17 +58,16 @@ class FirstPaymentSubscriptionBuilder implements Contract
      * @param mixed $owner
      * @param string $name
      * @param string $plan
-     * @param array $paymentOptions
-     * @throws \Laravel\Cashier\Exceptions\PlanNotFoundException
      */
-    public function __construct(Model $owner, string $name, string $plan, $paymentOptions = [])
+    public function __construct(Model $owner, string $name, string $plan)
     {
         $this->owner = $owner;
         $this->name = $name;
 
         $this->plan = app(PlanRepository::class)::findOrFail($plan);
 
-        $this->initializeFirstPaymentBuilder($owner, $paymentOptions);
+        $this->firstPaymentBuilder = new FirstPaymentBuilder($owner);
+        $this->firstPaymentBuilder->setFirstPaymentMethod($this->plan->firstPaymentMethod());
 
         $this->startSubscription = new StartSubscription($owner, $name, $plan);
     }
@@ -87,23 +85,17 @@ class FirstPaymentSubscriptionBuilder implements Contract
         $actions = new ActionCollection([$this->startSubscription]);
         $coupon = $this->startSubscription->coupon();
 
-        if ($this->isTrial) {
+        if($this->isTrial) {
             $taxPercentage = $this->owner->taxPercentage() * 0.01;
             $total = $this->plan->firstPaymentAmount();
-          
-            if ($total->isZero()) {
-                $vat = $total->subtract($total); // zero VAT
-            } else {
-                $vat = $total->divide(1 + $taxPercentage)
-                             ->multiply($taxPercentage, $this->roundingMode($total, $taxPercentage));
-            }
+
+            $vat = $total->divide(1 + $taxPercentage)->multiply($taxPercentage);
             $subtotal = $total->subtract($vat);
 
             $actions[] = new AddGenericOrderItem(
                 $this->owner,
                 $subtotal,
-                $this->plan->firstPaymentDescription(),
-                $this->roundingMode($total, $taxPercentage)
+                $this->plan->firstPaymentDescription()
             );
         } elseif ($coupon) {
             $actions[] = new ApplySubscriptionCouponToPayment($this->owner, $coupon, $actions->processedOrderItems());
@@ -139,19 +131,6 @@ class FirstPaymentSubscriptionBuilder implements Contract
     {
         $this->startSubscription->trialUntil($trialUntil);
         $this->isTrial = true;
-
-        return $this;
-    }
-
-    /**
-     * Force the trial to end immediately.
-     *
-     * @return \Laravel\Cashier\SubscriptionBuilder\Contracts\SubscriptionBuilder|void
-     */
-    public function skipTrial()
-    {
-        $this->isTrial = false;
-        $this->startSubscription->skipTrial();
 
         return $this;
     }
@@ -226,49 +205,5 @@ class FirstPaymentSubscriptionBuilder implements Contract
                 $this->startSubscription->builder()->makeSubscription()
             );
         }
-    }
-
-    /**
-     * @param \Illuminate\Database\Eloquent\Model $owner
-     * @param array $paymentOptions
-     * @return \Laravel\Cashier\FirstPayment\FirstPaymentBuilder
-     */
-    protected function initializeFirstPaymentBuilder(Model $owner, $paymentOptions = [])
-    {
-        $this->firstPaymentBuilder = new FirstPaymentBuilder($owner, $paymentOptions);
-        $this->firstPaymentBuilder->setFirstPaymentMethod($this->plan->firstPaymentMethod());
-        $this->firstPaymentBuilder->setRedirectUrl($this->plan->firstPaymentRedirectUrl());
-        $this->firstPaymentBuilder->setWebhookUrl($this->plan->firstPaymentWebhookUrl());
-        $this->firstPaymentBuilder->setDescription($this->plan->firstPaymentDescription());
-
-        return $this->firstPaymentBuilder;
-    }
-
-    /**
-     * Format the money as basic decimal
-     *
-     * @param \Money\Money $total
-     * @param float $taxPercentage
-     *
-     * @return int
-     */
-    public function roundingMode(Money $total, float $taxPercentage)
-    {
-        $vat = $total->divide(1 + $taxPercentage)->multiply($taxPercentage);
-
-        $subtotal = $total->subtract($vat);
-
-        $recalculatedTax = $subtotal->multiply($taxPercentage * 100)->divide(100);
-
-        $finalTotal = $subtotal->add($recalculatedTax);
-
-        if ($finalTotal->equals($total)) {
-            return Money::ROUND_HALF_UP;
-        }
-        if ($finalTotal->greaterThan($total)) {
-            return Money::ROUND_UP;
-        }
-
-        return  Money::ROUND_DOWN;
     }
 }

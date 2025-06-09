@@ -9,10 +9,9 @@ use Laravel\Cashier\Coupon\RedeemedCoupon;
 use Laravel\Cashier\Order\OrderItem;
 use Laravel\Cashier\Order\OrderItemCollection;
 use Laravel\Cashier\Plan\Contracts\PlanRepository;
-use Laravel\Cashier\SubscriptionBuilder\Contracts\SubscriptionConfigurator;
 use Laravel\Cashier\SubscriptionBuilder\MandatedSubscriptionBuilder;
 
-class StartSubscription extends BaseAction implements SubscriptionConfigurator
+class StartSubscription extends BaseAction
 {
     /** @var string */
     protected $name;
@@ -31,9 +30,6 @@ class StartSubscription extends BaseAction implements SubscriptionConfigurator
 
     /** @var null|\Carbon\Carbon */
     protected $trialUntil;
-
-    /** @var bool */
-    protected $skipTrial;
 
     /** @var null|\Laravel\Cashier\SubscriptionBuilder\MandatedSubscriptionBuilder */
     protected $builder;
@@ -57,9 +53,9 @@ class StartSubscription extends BaseAction implements SubscriptionConfigurator
 
         $this->plan = app(PlanRepository::class)::findOrFail($plan);
 
-        $this->unitPrice = $this->plan->amount();
+        $this->subtotal = $this->plan->amount();
         $this->description = $this->plan->description();
-        $this->currency = $this->unitPrice->getCurrency()->getCode();
+        $this->currency = $this->subtotal->getCurrency()->getCode();
 
         $this->couponRepository = app()->make(CouponRepository::class);
     }
@@ -80,27 +76,19 @@ class StartSubscription extends BaseAction implements SubscriptionConfigurator
         // The coupon will be handled manually by this action
         $action->builder()->skipCouponHandling();
 
-        if (isset($payload['taxPercentage'])) {
+        if(isset($payload['taxPercentage'])) {
             $action->withTaxPercentage($payload['taxPercentage']);
         }
 
-        if (isset($payload['trialUntil'])) {
+        if(isset($payload['trialUntil'])) {
             $action->trialUntil(Carbon::parse($payload['trialUntil']));
         }
 
-        if (isset($payload['trialDays'])) {
+        if(isset($payload['trialDays'])) {
             $action->trialDays($payload['trialDays']);
         }
 
-        if (isset($payload['skipTrial']) && $payload['skipTrial']) {
-            $action->skipTrial();
-        }
-
-        if (isset($payload['quantity'])) {
-            $action->quantity($payload['quantity']);
-        }
-
-        if (isset($payload['coupon'])) {
+        if(isset($payload['coupon'])) {
             $action->withCoupon($payload['coupon']);
         }
 
@@ -124,7 +112,6 @@ class StartSubscription extends BaseAction implements SubscriptionConfigurator
             'nextPaymentAt' => ! empty($this->nextPaymentAt) ? $this->nextPaymentAt->toIso8601String() : null,
             'trialDays' => $this->trialDays,
             'trialUntil' => ! empty($this->trialUntil) ? $this->trialUntil->toIso8601String(): null,
-            'skipTrial' => $this->skipTrial,
             'coupon' => ! empty($this->coupon) ? $this->coupon->name() : null,
         ]);
     }
@@ -146,11 +133,11 @@ class StartSubscription extends BaseAction implements SubscriptionConfigurator
     {
         return [
             'owner_type' => get_class($this->owner),
-            'owner_id' => $this->owner->getKey(),
+            'owner_id' => $this->owner->id,
             'process_at' => now(),
             'description' => $this->getDescription(),
             'currency' => $this->getCurrency(),
-            'unit_price' => $this->getUnitPrice()->getAmount(),
+            'unit_price' => $this->getSubtotal()->getAmount(),
             'tax_percentage' => $this->getTaxPercentage(),
             'quantity' => $this->quantity,
         ];
@@ -166,7 +153,7 @@ class StartSubscription extends BaseAction implements SubscriptionConfigurator
      */
     public function execute()
     {
-        if (empty($this->nextPaymentAt) && ! $this->isTrial()) {
+        if(empty($this->nextPaymentAt) && !$this->isTrial()) {
             $this->builder()->nextPaymentAt(Carbon::parse($this->plan->interval()));
         }
 
@@ -179,13 +166,15 @@ class StartSubscription extends BaseAction implements SubscriptionConfigurator
             ->create($this->processedOrderItemData())
             ->toCollection();
 
-        if ($this->coupon) {
+        if($this->coupon) {
             $redeemedCoupon = RedeemedCoupon::record($this->coupon, $subscription);
 
-            if (! $this->isTrial()) {
-                $processedItems = $this->coupon->applyTo($redeemedCoupon, $processedItems);
+            if(!$this->isTrial()) {
+                $processedItems =  $this->coupon->applyTo($redeemedCoupon, $processedItems);
             }
         }
+
+        $this->owner->cancelGenericTrial();
 
         return $processedItems;
     }
@@ -202,7 +191,7 @@ class StartSubscription extends BaseAction implements SubscriptionConfigurator
     {
         $this->trialDays = $trialDays;
         $this->builder()->trialDays($trialDays);
-        $this->unitPrice = money(0, $this->getCurrency());
+        $this->subtotal = money(0, $this->getCurrency());
 
         return $this;
     }
@@ -212,27 +201,13 @@ class StartSubscription extends BaseAction implements SubscriptionConfigurator
      *
      * @param  Carbon $trialUntil
      * @return $this
+     * @throws \Throwable|\Laravel\Cashier\Exceptions\PlanNotFoundException
      */
     public function trialUntil(Carbon $trialUntil)
     {
         $this->trialUntil = $trialUntil;
         $this->builder()->trialUntil($trialUntil);
-        $this->unitPrice = money(0, $this->getCurrency());
-
-        return $this;
-    }
-
-    /**
-     * Force the trial to end immediately.
-     *
-     * @return $this
-     */
-    public function skipTrial()
-    {
-        $this->skipTrial = true;
-        $this->trialUntil = null;
-        $this->builder()->skipTrial();
-        $this->unitPrice = $this->plan->amount();
+        $this->subtotal = money(0, $this->getCurrency());
 
         return $this;
     }
@@ -248,7 +223,6 @@ class StartSubscription extends BaseAction implements SubscriptionConfigurator
     {
         throw_if($quantity < 1, new \LogicException('Subscription quantity must be at least 1.'));
         $this->quantity = $quantity;
-        $this->builder()->quantity($quantity);
 
         return $this;
     }
@@ -295,7 +269,7 @@ class StartSubscription extends BaseAction implements SubscriptionConfigurator
      */
     protected function isTrial()
     {
-        return ! (empty($this->trialDays) && empty($this->trialUntil));
+        return ! ( empty($this->trialDays) && empty($this->trialUntil) );
     }
 
     /**
@@ -306,7 +280,7 @@ class StartSubscription extends BaseAction implements SubscriptionConfigurator
      */
     public function builder()
     {
-        if ($this->builder === null) {
+        if($this->builder === null) {
             $this->builder = new MandatedSubscriptionBuilder(
                 $this->owner,
                 $this->name,

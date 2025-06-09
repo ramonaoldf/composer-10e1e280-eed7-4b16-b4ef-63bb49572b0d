@@ -26,15 +26,14 @@ class Credit extends Model
             $current = static::whereOwner($owner)->whereCurrency($amount->getCurrency()->getCode())->first();
 
             // if the owner already has a credit
-            if ($current) {
+            if($current) {
                 $current->increment('value', (int) $amount->getAmount());
-
                 return $current;
             }
 
             // if the owner has no credit yet
             return static::create([
-                'owner_id' => $owner->getKey(),
+                'owner_id' => $owner->id,
                 'owner_type' => get_class($owner),
                 'currency' => $amount->getCurrency()->getCode(),
                 'value' => (int) $amount->getAmount(),

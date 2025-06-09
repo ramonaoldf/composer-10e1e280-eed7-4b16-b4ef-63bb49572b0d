@@ -10,8 +10,7 @@ trait PopulatesMollieCustomerFields
      *
      * @return array
      */
-    public function mollieCustomerFields()
-    {
+    public function mollieCustomerFields() {
         return [
             'email' => $this->email,
             'name' => $this->name,

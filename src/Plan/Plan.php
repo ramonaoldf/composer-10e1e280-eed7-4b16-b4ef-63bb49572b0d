@@ -104,7 +104,6 @@ class Plan implements PlanContract
     public function setName(string $name)
     {
         $this->name = $name;
-
         return $this;
     }
 

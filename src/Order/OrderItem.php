@@ -13,9 +13,6 @@ use Laravel\Cashier\Traits\HasOwner;
  * @property InteractsWithOrderItems orderable
  * @property \Carbon\Carbon process_at
  * @property int quantity
- * @property string currency
- * @property int unit_price
- * @property float tax_percentage
  * @property string orderable_type
  * @property mixed orderable_id
  * @method static create(array $array)
@@ -23,7 +20,7 @@ use Laravel\Cashier\Traits\HasOwner;
  */
 class OrderItem extends Model implements InvoicableItem
 {
-    use HasOwner;
+    use hasOwner;
     use FormatsAmount;
     use ConvertsToMoney;
 
@@ -58,19 +55,9 @@ class OrderItem extends Model implements InvoicableItem
     }
 
     /**
-     * Return the order for this order item.
-     *
-     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo
-     */
-    public function order()
-    {
-        return $this->belongsTo(Order::class);
-    }
-
-    /**
      * Get the order item total before taxes.
      *
-     * @return int
+     * @return integer
      */
     public function getSubtotalAttribute()
     {
@@ -80,7 +67,7 @@ class OrderItem extends Model implements InvoicableItem
     /**
      * Get the order item tax money value.
      *
-     * @return int
+     * @return integer
      */
     public function getTaxAttribute()
     {
@@ -92,7 +79,7 @@ class OrderItem extends Model implements InvoicableItem
     /**
      * Get the order item total after taxes.
      *
-     * @return int
+     * @return integer
      */
     public function getTotalAttribute()
     {
@@ -110,7 +97,7 @@ class OrderItem extends Model implements InvoicableItem
      */
     public function scopeProcessed($query, $processed = true)
     {
-        if (! $processed) {
+        if(! $processed) {
             return $query->whereNull('order_id');
         }
 
@@ -138,7 +125,7 @@ class OrderItem extends Model implements InvoicableItem
      */
     public function scopeDue($query)
     {
-        return $query->where('process_at', '<=', now());
+        return $query->whereDate('process_at', '<=', now());
     }
 
     /**
@@ -179,7 +166,7 @@ class OrderItem extends Model implements InvoicableItem
      */
     public function preprocess()
     {
-        if ($this->orderableIsSet()) {
+        if($this->orderableIsSet()) {
             return $this->orderable->preprocessOrderItem($this);
         }
 
@@ -201,7 +188,7 @@ class OrderItem extends Model implements InvoicableItem
      */
     public function process()
     {
-        if ($this->orderableIsSet()) {
+        if($this->orderableIsSet()) {
             $result = $this->orderable->processOrderItem($this);
             $result->save();
 
@@ -260,7 +247,7 @@ class OrderItem extends Model implements InvoicableItem
      */
     public function getTaxPercentage()
     {
-        return (float) $this->tax_percentage;
+        return $this->tax_percentage;
     }
 
     /**
@@ -291,7 +278,7 @@ class OrderItem extends Model implements InvoicableItem
      */
     public function handlePaymentFailed()
     {
-        if ($this->orderableIsSet()) {
+        if($this->orderableIsSet()) {
             $this->orderable_type::handlePaymentFailed($this);
         }
 
@@ -306,7 +293,7 @@ class OrderItem extends Model implements InvoicableItem
      */
     public function handlePaymentPaid()
     {
-        if ($this->orderableIsSet()) {
+        if($this->orderableIsSet()) {
             $this->orderable_type::handlePaymentPaid($this);
         }
 

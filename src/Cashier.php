@@ -27,32 +27,11 @@ class Cashier
     protected static $currencySymbol = '€';
 
     /**
-     * The current currency symbol.
-     *
-     * @var string
-     */
-    protected static $currencyLocale = 'de_DE';
-
-    /**
      * The custom currency formatter.
      *
      * @var callable
      */
     protected static $formatCurrencyUsing;
-
-    /**
-     * Indicates if Cashier migrations will be run.
-     *
-     * @var bool
-     */
-    public static $runsMigrations = true;
-
-    /**
-     * Indicates if Cashier routes will be registered.
-     *
-     * @var bool
-     */
-    public static $registersRoutes = true;
 
     /**
      * Process scheduled OrderItems
@@ -97,17 +76,6 @@ class Cashier
     }
 
     /**
-     * Set the currency locale to be used when formatting currency.
-     *
-     * @param  string  $locale
-     * @return void
-     */
-    public static function useCurrencyLocale($locale)
-    {
-        static::$currencyLocale = $locale;
-    }
-
-    /**
      * Guess the currency symbol for the given currency.
      *
      * @param  string  $currency
@@ -139,7 +107,7 @@ class Cashier
     {
         return static::$currency;
     }
-
+    
     /**
      * Get the currency symbol currently in use.
      *
@@ -148,16 +116,6 @@ class Cashier
     public static function usesCurrencySymbol()
     {
         return static::$currencySymbol;
-    }
-
-    /**
-     * Get the currency locale currently in use.
-     *
-     * @return string
-     */
-    public static function usesCurrencyLocale()
-    {
-        return static::$currencyLocale;
     }
 
     /**
@@ -183,7 +141,7 @@ class Cashier
             return call_user_func(static::$formatCurrencyUsing, $money);
         }
 
-        $numberFormatter = new \NumberFormatter(static::$currencyLocale, \NumberFormatter::CURRENCY);
+        $numberFormatter = new \NumberFormatter('de_DE', \NumberFormatter::CURRENCY);
         $moneyFormatter = new IntlMoneyFormatter($numberFormatter, new ISOCurrencies);
 
         return $moneyFormatter->format($money);
@@ -195,71 +153,14 @@ class Cashier
      */
     public static function getLocale(Model $owner)
     {
-        if (method_exists($owner, 'getLocale')) {
+        if(method_exists($owner, 'getLocale')) {
             $locale = $owner->getLocale();
 
-            if (! empty($locale)) {
+            if(!empty($locale)) {
                 return $locale;
             }
         }
 
         return config('cashier.locale');
-    }
-
-    /**
-     * Get the webhook relative url.
-     *
-     * @return string
-     */
-    public static function webhookUrl()
-    {
-        return self::pathFromUrl(config('cashier.webhook_url'));
-    }
-
-    /**
-     * Get the first payment webhook relative url.
-     *
-     * @return string
-     */
-    public static function firstPaymentWebhookUrl()
-    {
-        return self::pathFromUrl(config('cashier.first_payment.webhook_url'));
-    }
-
-    /**
-     * Configure Cashier to not register its migrations.
-     *
-     * @return static
-     */
-    public static function ignoreMigrations()
-    {
-        static::$runsMigrations = false;
-
-        return new static;
-    }
-
-    /**
-     * Configure Cashier to not register its routes.
-     *
-     * @return static
-     */
-    public static function ignoreRoutes()
-    {
-        static::$registersRoutes = false;
-
-        return new static;
-    }
-
-    /**
-     * Get path from url.
-     *
-     * @param string $url
-     * @return string
-     */
-    protected static function pathFromUrl($url)
-    {
-        $url_parts = parse_url($url);
-
-        return preg_replace('/^\//', '', $url_parts['path']);
     }
 }
