@@ -22,21 +22,22 @@
         }
     ],
     "require": {
-        "php": ">=7.2",
+        "php": "^7.2",
         "ext-json": "*",
         "ext-intl": "*",
         "presttec\/dompdf": "^0.8.0",
-        "presttec\/illuminate-database": "^6.0|^7.0",
-        "presttec\/illuminate-support": "^6.0|^7.0",
+        "presttec\/illuminate-database": "^6.0|^7.0|^8.0",
+        "presttec\/illuminate-support": "^6.0|^7.0|^8.0",
         "presttec\/laravel-mollie": "^2.9",
         "presttec\/money": "^3.2",
         "presttec\/carbon": "^2.0"
     },
     "require-dev": {
+        "presttec\/laravel-legacy-factories": "^1.0",
         "presttec\/mockery": "^1.0",
-        "presttec\/testbench": "^4.0|^5.0",
+        "presttec\/testbench": "^4.0|^5.0|^6.0",
         "presttec\/phpunit": "^8.3|^9.0",
-        "presttec\/phpdotenv": "^3.3|^4.0"
+        "presttec\/phpdotenv": "^3.3|^4.0|^5.0"
     },
     "autoload": {
         "files": [
